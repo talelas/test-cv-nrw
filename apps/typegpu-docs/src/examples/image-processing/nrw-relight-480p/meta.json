@@ -1,0 +1,7 @@
+{
+  "title": "NRW Relight 480p (4060)",
+  "description": "480p reduced-quality dynamic relighting: Sobel normals + Lambert/Blinn-Phong + fake shadows in one fullscreen pass. Mouse light, wheel = Z.",
+  "category": "image-processing",
+  "tags": ["camera", "relighting", "normals", "shadows", "480p"],
+  "coolFactor": 5
+}

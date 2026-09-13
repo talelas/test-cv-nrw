@@ -1,0 +1,39 @@
+<div class="spinner-background">
+  <div class="spinner">Loading...</div>
+</div>
+
+<canvas></canvas>
+<video autoplay playsinline></video>
+<div class="hud"><span id="fps">-- fps</span><span id="light">light --</span></div>
+
+<style>
+  video {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    width: 25%;
+    border-radius: 16px;
+    object-fit: cover;
+  }
+  .hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    display: flex;
+    gap: 8px;
+    font: 12px/1.4 monospace;
+    color: #fff;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 6px 10px;
+    border-radius: 8px;
+    z-index: 5;
+  }
+  .spinner-background {
+    inset: 0;
+    position: absolute;
+    display: grid;
+    place-items: center;
+    background-color: var(--color-tameplum-50, white);
+    z-index: 4;
+  }
+</style>
