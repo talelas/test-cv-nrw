@@ -15,7 +15,7 @@
     "@astrojs/check": "^0.9.7",
     "@astrojs/react": "^5.0.0",
     "@astrojs/sitemap": "^3.7.1",
-    "@astrojs/starlight": "^0.38.1",
+    "@astrojs/starlight": "^0.42.0",
     "@astrojs/starlight-tailwind": "^5.0.0",
     "@babel/standalone": "^7.28.6",
     "@dimforge/rapier2d-compat": "^0.19.3",
