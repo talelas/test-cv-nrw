@@ -1,0 +1,34 @@
+<div>
+  <div>first matrix</div>
+  <div class="matrix-a example-matrix"></div>
+</div>
+
+<div>
+  <div>second matrix</div>
+  <div class="matrix-b example-matrix"></div>
+</div>
+
+<div>
+  <div>result matrix</div>
+  <div class="matrix-result example-matrix"></div>
+</div>
+
+<style>
+  .example-matrix {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0 0.5rem;
+    background-color: #ebebf8;
+    padding: 1rem;
+    border-radius: 0.5rem;
+  }
+
+  .example-matrix > div {
+    padding: 0.5rem;
+  }
+
+  div:has(+ .example-matrix) {
+    padding-bottom: 1rem;
+    text-align: center;
+  }
+</style>
