@@ -290,7 +290,7 @@
     "@babel/parser": "^7.29.0",
     "@babel/traverse": "^7.29.0",
     "@babel/types": "catalog:",
-    "ast-kit": "^2.2.0",
+    "ast-kit": "^3.0.0",
     "defu": "^6.1.4",
     "magic-string": "^0.30.21",
     "pathe": "^2.0.3",
