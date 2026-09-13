@@ -1,0 +1,172 @@
+@layer base, starlight, theme, components, utilities;
+@layer starlight.base, starlight.reset, starlight.core, starlight.content, starlight.components, starlight.utils;
+
+@import '@astrojs/starlight-tailwind';
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+@theme {
+  /* --- Colors --- */
+  /* Starlight colors */
+  --color-accent-200: #c3c4f1;
+  --color-accent-600: #6453d2;
+  --color-accent-900: #2e295f;
+  --color-accent-950: #211f41;
+
+  --color-gray-100: #f5f5fd;
+  --color-gray-200: #ececfb;
+  --color-gray-300: #bfc0d2;
+  --color-gray-400: #8788aa;
+  --color-gray-500: #545474;
+  --color-gray-700: #353452;
+  --color-gray-800: #24233f;
+  --color-gray-900: #171724;
+
+  /* Custom colors */
+  --color-tameplum-20: #f6f6ff;
+  --color-tameplum-50: #efeff9;
+  --color-tameplum-80: #ebebf8;
+  --color-tameplum-100: #e2e2f0;
+  --color-tameplum-600: #757387;
+  --color-tameplum-800: #515061;
+
+  --color-grayscale-100: #000000;
+  --color-grayscale-80: #333333;
+  --color-grayscale-60: #808080;
+  --color-grayscale-20: #ebebed;
+  --color-grayscale-0: #fff;
+
+  --color-navy-bg: #232736;
+  --color-navy-100: #001a72;
+  --color-navy-80: #33488e;
+  --color-navy-0: #f8f9ff;
+
+  --color-off-navy: #272b3c;
+  --color-almost-white: #fcfcff;
+
+  --color-special-stroke: #2a0a6629;
+
+  /* Gradients */
+  --color-gradient-purple: #c464ff;
+  --color-gradient-purple-dark: #a91eff;
+  --color-gradient-blue: #1d72f0;
+  --color-gradient-blue-dark: #0058dd;
+
+  /* --- Font Family --- */
+  --font-sans: 'Aeonik', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* --- Keyframes --- */
+  @keyframes scroll-bg-y {
+    0% {
+      background-position: center 0rem;
+    }
+    100% {
+      background-position: center 2rem;
+    }
+  }
+
+  /* --- Animations --- */
+  --animate-scroll-bg-y-slow: scroll-bg-y 3s linear infinite;
+
+  /* --- Screens --- */
+  --breakpoint-sm: 601px;
+  --breakpoint-md: 1025px;
+  --breakpoint-lg: 1441px;
+}
+
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+@custom-variant next-group-hover (&:is(:where(.group):has(~ .group:hover) *));
+@custom-variant prev-group-hover (&:is(.group:hover ~ :where(.group) *));
+
+body {
+  /* causes the font weights to reflect how they appear on Figma */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-smooth: never;
+}
+
+button,
+input {
+  font-family: inherit;
+}
+
+.sl-badge {
+  isolation: isolate;
+  position: relative;
+  top: -1px;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background-color: transparent !important;
+  color: color-mix(in srgb, var(--sl-color-text) 70%, transparent) !important;
+  font-family: 'JetBrains Mono', monospace !important;
+  font-weight: 600 !important;
+}
+
+.sl-badge::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0.1rem;
+  border-radius: 0.2rem;
+  background-color: var(--typegpu-badge-color);
+  content: '';
+  filter: blur(0.1rem);
+  opacity: 20%;
+  pointer-events: none;
+}
+
+:root[data-theme='dark'] .sl-badge {
+  color: rgb(255 255 255 / 70%) !important;
+}
+
+:root[data-theme='dark'] .sl-badge::before {
+  opacity: 38.5%;
+}
+
+a[aria-current='page'] > .sl-badge {
+  color: rgb(255 255 255 / 70%) !important;
+}
+
+:root[data-theme='dark'] a[aria-current='page'] > .sl-badge {
+  color: rgb(0 0 0 / 70%) !important;
+}
+
+.sl-badge.default {
+  --typegpu-badge-color: var(--sl-badge-default-border);
+  font-size: 0.75rem !important;
+}
+
+.sl-badge.note {
+  --typegpu-badge-color: var(--sl-badge-note-border);
+}
+
+.sl-badge.success {
+  --typegpu-badge-color: var(--sl-badge-success-border);
+}
+
+.sl-badge.caution {
+  --typegpu-badge-color: var(--sl-badge-caution-border);
+}
+
+.sl-badge.tip {
+  --typegpu-badge-color: var(--sl-badge-tip-border);
+}
+
+.sl-badge.danger {
+  --typegpu-badge-color: var(--sl-badge-danger-border);
+}
+
+/* Remove Monaco editor rounding */
+.monaco-editor,
+.monaco-editor .overflow-guard,
+.monaco-editor .margin,
+.monaco-editor .scroll-decoration {
+  border-radius: 0 !important;
+}
+
+.no-transition,
+.no-transition *,
+.no-transition *::before,
+.no-transition *::after {
+  transition-duration: 0s !important;
+}

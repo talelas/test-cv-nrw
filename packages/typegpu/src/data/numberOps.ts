@@ -1,0 +1,29 @@
+export const smoothstepScalar = (edge0: number, edge1: number, x: number): number => {
+  if (edge0 === edge1) {
+    return 0; // WGSL spec says this is an indeterminate value
+  }
+  const t = clampScalar((x - edge0) / (edge1 - edge0), 0.0, 1.0);
+  return t * t * (3 - 2 * t);
+};
+
+export const clampScalar = (value: number, low: number, high: number) =>
+  Math.min(Math.max(low, value), high);
+
+const buf32 = new ArrayBuffer(4);
+const f32arr = new Float32Array(buf32);
+const u32arr = new Uint32Array(buf32);
+const i32arr = new Int32Array(buf32);
+export function bitcastU32toF32Impl(n: number): number {
+  u32arr[0] = n;
+  return f32arr[0] as number;
+}
+
+export function bitcastU32toI32Impl(n: number): number {
+  u32arr[0] = n;
+  return i32arr[0] as number;
+}
+
+export function bitcastF32toU32Impl(n: number): number {
+  f32arr[0] = n;
+  return u32arr[0] as number;
+}

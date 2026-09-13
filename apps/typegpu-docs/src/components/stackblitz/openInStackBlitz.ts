@@ -1,0 +1,145 @@
+import StackBlitzSDK from '@stackblitz/sdk';
+import typegpuColorPackageJson from '@typegpu/color/package.json' with { type: 'json' };
+import typegpuGlPackageJson from '@typegpu/gl/package.json' with { type: 'json' };
+import typegpuNoisePackageJson from '@typegpu/noise/package.json' with { type: 'json' };
+import typegpuSdfPackageJson from '@typegpu/sdf/package.json' with { type: 'json' };
+import typegpuThreePackageJson from '@typegpu/three/package.json' with { type: 'json' };
+import typegpuReactPackageJson from '@typegpu/react/package.json' with { type: 'json' };
+import typegpuPackageJson from 'typegpu/package.json' with { type: 'json' };
+import unpluginPackageJson from 'unplugin-typegpu/package.json' with { type: 'json' };
+import typegpuDocsPackageJson from '../../../package.json' with { type: 'json' };
+import type { Example, ExampleCommonFile, ExampleSource } from '../../utils/examples/types.ts';
+// oxlint-disable-next-line import/default
+import index from './stackBlitzIndex.ts?raw';
+import { pnpmWorkspaceYaml } from './pnpmWorkspace.ts';
+
+export async function openInStackBlitz(
+  example: Example,
+  exampleSource: ExampleSource,
+  common: ExampleCommonFile[],
+) {
+  const tsFiles: Record<string, string> = {};
+
+  for (const file of exampleSource.tsFiles) {
+    tsFiles[`src/${file.path}`] = file.tsnotoverContent ?? file.content;
+  }
+  for (const file of common) {
+    tsFiles[`src/common/${file.path}`] = file.tsnotoverContent ?? file.content;
+  }
+
+  for (const key of Object.keys(tsFiles)) {
+    const content = tsFiles[key];
+    tsFiles[key] = content
+      .replaceAll('/TypeGPU', 'https://docs.swmansion.com/TypeGPU')
+      .replaceAll('../../common', './common');
+  }
+
+  const styleCss = `@import "tailwindcss";`;
+
+  StackBlitzSDK.openProject(
+    {
+      template: 'node',
+      title: example.metadata.title,
+      files: {
+        'index.ts': index.replaceAll(/\/\/\s*@ts-ignore\s*\n/g, ''),
+        'style.css': styleCss,
+        ...tsFiles,
+        'index.html': `\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${example.metadata.title}</title>
+    <link href="/style.css" rel="stylesheet">
+</head>
+<body>
+${exampleSource.htmlFile.content}
+<script type="module" src="/index.ts"></script>
+</body>
+</html>`,
+        'tsconfig.json': `{
+    "compilerOptions": {
+        "target": "ES2020",
+        "useDefineForClassFields": true,
+        "module": "ESNext",
+        "lib": ["ES2020", "DOM", "DOM.Iterable"],
+        "skipLibCheck": true,
+        "types": ["@webgpu/types"],
+        "moduleResolution": "node",
+        "allowImportingTsExtensions": true,
+        "isolatedModules": true,
+        "moduleDetection": "force",
+        "noEmit": true,
+        "strict": true,
+        "noUnusedLocals": true,
+        "noUnusedParameters": true
+    },
+    "include": ["src", "index.ts"]
+}`,
+        'package.json': `{
+  "name": "typegpu-example-sandbox",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "${pnpmWorkspaceYaml.catalogs.types.typescript}",
+    "vite": "^6.1.1",
+    "@webgpu/types": "${pnpmWorkspaceYaml.catalogs.types['@webgpu/types']}",
+    "@types/three": "${pnpmWorkspaceYaml.catalogs.types['@types/three']}",
+    "tailwindcss": "^4.1.11",
+    "@tailwindcss/vite": "^4.1.18"
+  },
+  "dependencies": ${JSON.stringify(
+    {
+      typegpu: `^${typegpuPackageJson.version}`,
+      'unplugin-typegpu': `^${unpluginPackageJson.version}`,
+      'wgpu-matrix': pnpmWorkspaceYaml.catalogs.example['wgpu-matrix'],
+      '@loaders.gl/core': typegpuDocsPackageJson.dependencies['@loaders.gl/core'],
+      '@loaders.gl/obj': typegpuDocsPackageJson.dependencies['@loaders.gl/obj'],
+      '@loaders.gl/gltf': typegpuDocsPackageJson.dependencies['@loaders.gl/gltf'],
+      'typed-binary': typegpuDocsPackageJson.dependencies['typed-binary'],
+      three: pnpmWorkspaceYaml.catalogs.example.three,
+      '@typegpu/noise': typegpuNoisePackageJson.version,
+      '@typegpu/color': typegpuColorPackageJson.version,
+      '@typegpu/gl': typegpuGlPackageJson.version,
+      '@typegpu/sdf': typegpuSdfPackageJson.version,
+      '@typegpu/three': typegpuThreePackageJson.version,
+      ...(example.usedApis.includes('@typegpu/react')
+        ? {
+            '@typegpu/react': typegpuReactPackageJson.version,
+            react: '^19.2.0',
+            'react-dom': '^19.2.0',
+          }
+        : {}),
+    },
+    undefined,
+    2,
+  ).replaceAll('\n', '\n  ')}
+}`,
+        'vite.config.js': `\
+import { defineConfig } from 'vite';
+import typegpuPlugin from 'unplugin-typegpu/vite';
+import tailwindVite from '@tailwindcss/vite';
+
+export default defineConfig({
+  plugins: [
+    tailwindVite(),
+    typegpuPlugin(),
+  ],
+});
+`,
+      },
+    },
+    {
+      openFile: 'src/index.ts',
+      newWindow: true,
+      theme: 'light',
+    },
+  );
+}

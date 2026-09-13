@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "outDir": "${configDir}/dist",
+    "declaration": true,
+    "lib": ["ES2024", "DOM"],
+    "emitDeclarationOnly": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "target": "ESNext",
+    "module": "ESNext",
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "allowJs": true,
+    "esModuleInterop": true,
+    "moduleResolution": "bundler",
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "rootDir": "${configDir}/.",
+    "types": ["@webgpu/types", "@vitest/browser/matchers"]
+  },
+  "exclude": ["${configDir}/dist", "${configDir}/node_modules"]
+}

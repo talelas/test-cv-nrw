@@ -1,0 +1,767 @@
+import { describe, expect, expectTypeOf, vi } from 'vitest';
+import { d, isBindGroup, MissingBindGroupsError, tgpu, type TgpuComputePipeline } from 'typegpu';
+import { restoreResource, snapshotResource } from 'typegpu/~internal';
+import { it } from 'typegpu-testing-utility';
+import { extensionEnabled } from 'typegpu/std';
+
+describe('TgpuComputePipeline', () => {
+  it('can be created with a compute entry function', ({ root, device }) => {
+    const entryFn = tgpu.computeFn({ workgroupSize: [32] })(() => {
+      // do something
+    });
+
+    const computePipeline = root.createComputePipeline({
+      compute: entryFn,
+    });
+
+    expectTypeOf(computePipeline).toEqualTypeOf<TgpuComputePipeline>();
+
+    root.unwrap(computePipeline);
+
+    expect(root.device.createComputePipeline).toBeCalledWith({
+      compute: {
+        module: device.mock.createShaderModule(),
+      },
+      label: 'computePipeline',
+      layout: device.mock.createPipelineLayout(),
+    });
+  });
+
+  it('throws an error if bind groups are missing', ({ root }) => {
+    const layout = tgpu.bindGroupLayout({ alpha: { uniform: d.f32 } });
+
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {
+      layout.$.alpha; // Using an entry of the layout
+    });
+
+    const pipeline = root.createComputePipeline({
+      compute: entryFn,
+    });
+
+    expect(() => pipeline.dispatchWorkgroups(1)).toThrowError(new MissingBindGroupsError([layout]));
+
+    expect(() => pipeline.dispatchWorkgroups(1)).toThrowErrorMatchingInlineSnapshot(
+      `[Error: Missing bind groups for layouts: 'layout'. Please provide it using pipeline.with(bindGroup).(...)]`,
+    );
+  });
+
+  it('is resolvable', ({ root }) => {
+    const main = tgpu.computeFn({ workgroupSize: [32] })(() => {
+      // do something
+    });
+
+    const computePipeline = root.createComputePipeline({
+      compute: main,
+    });
+
+    expect(tgpu.resolve([computePipeline])).toMatchInlineSnapshot(
+      `"@compute @workgroup_size(32) fn main() {}"`,
+    );
+  });
+
+  it('type checks passed bind groups', ({ root }) => {
+    const main = tgpu.computeFn({ workgroupSize: [32] })(() => {
+      // do something
+    });
+    const computePipeline = root.createComputePipeline({
+      compute: main,
+    });
+
+    const layout1 = tgpu.bindGroupLayout({ buf: { uniform: d.u32 } });
+    const bindGroup1 = root.createBindGroup(layout1, {
+      buf: root.createBuffer(d.u32).$usage('uniform'),
+    });
+    const layout2 = tgpu.bindGroupLayout({ buf: { uniform: d.f32 } });
+    const bindGroup2 = root.createBindGroup(layout2, {
+      buf: root.createBuffer(d.f32).$usage('uniform'),
+    });
+
+    computePipeline.with(layout1, bindGroup1);
+    computePipeline.with(layout2, bindGroup2);
+    //@ts-expect-error
+    () => computePipeline.with(layout1, bindGroup2);
+  });
+
+  it('should warn if timestamp-query feature is not enabled', ({ root, device }) => {
+    // @ts-expect-error
+    device.features = new Set();
+    using consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+
+    const callback = vi.fn();
+
+    expect(() => {
+      const before = root.createComputePipeline({ compute: entryFn });
+      const after = before.withPerformanceCallback(callback);
+      // no-op
+      expect(after).toBe(before);
+    }).not.toThrow();
+    expect(consoleWarnSpy.mock.calls[0]).toMatchInlineSnapshot(`
+      [
+        "⚠️ [webgpu-feature-missing] ",
+        "Performance callback cannot be used because the timestamp-query feature is not enabled on the root.",
+      ]
+    `);
+  });
+
+  it('drains shader logs when dispatching into an encoder-owned pass', ({
+    root,
+    commandEncoder,
+  }) => {
+    using consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {
+      console.log(1);
+    });
+    const pipeline = root.createComputePipeline({ compute: entryFn });
+
+    const encoder = root['~unstable'].createCommandEncoder();
+    const pass = encoder.beginComputePass();
+    pipeline.with(pass).dispatchWorkgroups(1);
+    pass.end();
+    encoder.submit();
+
+    expect(consoleWarnSpy).not.toHaveBeenCalled();
+    // The index and data log buffers are both read back once the encoder submits
+    expect(commandEncoder.copyBufferToBuffer).toHaveBeenCalledTimes(2);
+  });
+
+  it('warns that shader logs are lost when dispatching into a raw pass', ({
+    root,
+    commandEncoder,
+  }) => {
+    using consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {
+      console.log(1);
+    });
+
+    root
+      .createComputePipeline({ compute: entryFn })
+      .with(commandEncoder.beginComputePass())
+      .dispatchWorkgroups(1);
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '⚠️ [suspicious] ',
+      'Shader console.log output is ignored when dispatching into a raw compute pass encoder, since there is no submission to read it back after.',
+    );
+  });
+
+  it('resolves timestamps into the same submission as the pass', ({
+    root,
+    commandEncoder,
+    device,
+  }) => {
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+    const querySet = root.createQuerySet('timestamp', 2);
+
+    root
+      .createComputePipeline({ compute: entryFn })
+      .withTimestampWrites({ querySet })
+      .withPerformanceCallback(() => {})
+      .dispatchWorkgroups(1);
+
+    expect(commandEncoder.resolveQuerySet).toHaveBeenCalledTimes(1);
+    expect(device.queue.submit).toHaveBeenCalledTimes(2);
+  });
+
+  it('defers timestamp resolution to the encoder it was given', ({ root, commandEncoder }) => {
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+    const querySet = root.createQuerySet('timestamp', 2);
+
+    const encoder = root['~unstable'].createCommandEncoder();
+    root
+      .createComputePipeline({ compute: entryFn })
+      .withTimestampWrites({ querySet })
+      .withPerformanceCallback(() => {})
+      .with(encoder)
+      .dispatchWorkgroups(1);
+
+    expect(commandEncoder.resolveQuerySet).not.toHaveBeenCalled();
+
+    encoder.submit();
+    expect(commandEncoder.resolveQuerySet).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads a shared query set once and fires every performance callback', async ({
+    root,
+    commandEncoder,
+  }) => {
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+    const querySet = root.createQuerySet('timestamp', 4);
+    const callback1 = vi.fn();
+    const callback2 = vi.fn();
+
+    const encoder = root['~unstable'].createCommandEncoder();
+
+    root
+      .createComputePipeline({ compute: entryFn })
+      .withTimestampWrites({ querySet, beginningOfPassWriteIndex: 0, endOfPassWriteIndex: 1 })
+      .withPerformanceCallback(callback1)
+      .with(encoder)
+      .dispatchWorkgroups(1);
+
+    root
+      .createComputePipeline({ compute: entryFn })
+      .withTimestampWrites({ querySet, beginningOfPassWriteIndex: 2, endOfPassWriteIndex: 3 })
+      .withPerformanceCallback(callback2)
+      .with(encoder)
+      .dispatchWorkgroups(1);
+
+    encoder.submit();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(commandEncoder.resolveQuerySet).toHaveBeenCalledTimes(1);
+    expect(callback1).toHaveBeenCalledWith(0n, 0n);
+    expect(callback2).toHaveBeenCalledWith(0n, 0n);
+  });
+
+  it('warns when a timed pipeline executes repeatedly in one encoder', async ({ root }) => {
+    using consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+    const querySet = root.createQuerySet('timestamp', 2);
+    const callback = vi.fn();
+
+    const encoder = root['~unstable'].createCommandEncoder();
+    const pipeline = root
+      .createComputePipeline({ compute: entryFn })
+      .withTimestampWrites({ querySet })
+      .withPerformanceCallback(callback)
+      .with(encoder);
+
+    pipeline.dispatchWorkgroups(1);
+    pipeline.dispatchWorkgroups(1);
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '⚠️ [suspicious] ',
+      'Repeated executions of a timed pipeline within one command encoder write to the same query set indices, so the performance callback reports only the last execution.',
+    );
+
+    encoder.submit();
+    await new Promise((resolve) => setTimeout(resolve));
+
+    expect(callback).toHaveBeenCalledTimes(1);
+  });
+
+  it('warns that a performance callback cannot be reported on a raw encoder', ({
+    root,
+    commandEncoder,
+  }) => {
+    using consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+    const querySet = root.createQuerySet('timestamp', 2);
+
+    root
+      .createComputePipeline({ compute: entryFn })
+      .withTimestampWrites({ querySet })
+      .withPerformanceCallback(() => {})
+      .with(commandEncoder)
+      .dispatchWorkgroups(1);
+
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '⚠️ [suspicious] ',
+      "The performance callback is ignored when recording into a raw GPUCommandEncoder, since there is no submission to report after. Use root['~unstable'].createCommandEncoder() instead.",
+    );
+  });
+
+  it('warns only once per root when finish skips pending work', ({ root }) => {
+    using consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {
+      console.log(1);
+    });
+    const pipeline = root.createComputePipeline({ compute: entryFn });
+
+    for (let i = 0; i < 2; i++) {
+      const encoder = root['~unstable'].createCommandEncoder();
+      pipeline.with(encoder).dispatchWorkgroups(1);
+      encoder.finish();
+    }
+
+    expect(consoleWarnSpy.mock.calls).toEqual([
+      [
+        '⚠️ [suspicious] ',
+        'Shader console.log output and performance callbacks do not fire for command buffers produced by encoder.finish(). Use encoder.submit() instead.',
+      ],
+    ]);
+  });
+
+  it('re-applies state on every dispatch into a raw compute pass', ({ root, commandEncoder }) => {
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+    const rawPass = commandEncoder.beginComputePass();
+
+    const pipeline = root.createComputePipeline({ compute: entryFn }).with(rawPass);
+    pipeline.dispatchWorkgroups(1);
+    pipeline.dispatchWorkgroups(2);
+
+    // The caller can mutate the pass between dispatches, so nothing about its
+    // state can be assumed
+    expect(rawPass.setPipeline).toHaveBeenCalledTimes(2);
+    expect(rawPass.dispatchWorkgroups).toHaveBeenCalledTimes(2);
+  });
+
+  it('should setup timestamp writes in compute pass descriptor', ({ root, commandEncoder }) => {
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+
+    const querySet = root.createQuerySet('timestamp', 4);
+
+    const pipeline = root.createComputePipeline({ compute: entryFn }).withTimestampWrites({
+      querySet,
+      beginningOfPassWriteIndex: 1,
+      endOfPassWriteIndex: 2,
+    });
+
+    pipeline.dispatchWorkgroups(1);
+
+    expect(commandEncoder.beginComputePass).toHaveBeenCalledWith({
+      label: 'pipeline',
+      timestampWrites: {
+        querySet: querySet.querySet,
+        beginningOfPassWriteIndex: 1,
+        endOfPassWriteIndex: 2,
+      },
+    });
+  });
+
+  it('should work with bind groups and timestamp writes regardless of call order', ({
+    root,
+    commandEncoder,
+  }) => {
+    const layout = tgpu.bindGroupLayout({
+      data: { uniform: d.f32 },
+    });
+
+    const buffer = root.createBuffer(d.f32).$usage('uniform');
+    buffer.write(42.0);
+
+    const bindGroup = root.createBindGroup(layout, {
+      data: buffer,
+    });
+
+    const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {
+      layout.$.data;
+    });
+
+    const querySet = root.createQuerySet('timestamp', 4);
+
+    const pipeline = root
+      .createComputePipeline({ compute: entryFn })
+      .withTimestampWrites({
+        querySet,
+        beginningOfPassWriteIndex: 0,
+        endOfPassWriteIndex: 1,
+      })
+      .with(bindGroup);
+
+    const pipeline2 = root
+      .createComputePipeline({ compute: entryFn })
+      .with(bindGroup)
+      .withTimestampWrites({
+        querySet,
+        beginningOfPassWriteIndex: 2,
+        endOfPassWriteIndex: 3,
+      });
+
+    pipeline.dispatchWorkgroups(1);
+    pipeline2.dispatchWorkgroups(1);
+
+    expect(commandEncoder.beginComputePass).toHaveBeenCalledWith({
+      label: 'pipeline',
+      timestampWrites: {
+        querySet: querySet.querySet,
+        beginningOfPassWriteIndex: 0,
+        endOfPassWriteIndex: 1,
+      },
+    });
+
+    expect(commandEncoder.beginComputePass).toHaveBeenCalledWith({
+      label: 'pipeline2',
+      timestampWrites: {
+        querySet: querySet.querySet,
+        beginningOfPassWriteIndex: 2,
+        endOfPassWriteIndex: 3,
+      },
+    });
+  });
+
+  it('should wrap raw compute pipelines with bind groups', ({ root, commandEncoder }) => {
+    const manualLayout = tgpu.bindGroupLayout({ params: { uniform: d.f32 } });
+    const manualBindGroup = root.createBindGroup(manualLayout, {
+      params: root.createBuffer(d.f32).$usage('uniform'),
+    });
+    const fixedUniform = root.createUniform(d.f32);
+
+    const sourcePipeline = root
+      .createComputePipeline({
+        compute: tgpu.computeFn({ workgroupSize: [1] })(() => {
+          'use gpu';
+          fixedUniform.$;
+          manualLayout.$.params;
+        }),
+      })
+      .with(manualBindGroup);
+
+    const snapshot = snapshotResource(sourcePipeline);
+    if (snapshot?.type !== 'compute-pipeline') {
+      throw new Error('Expected a compute pipeline snapshot');
+    }
+
+    const pipeline = restoreResource(snapshot, { getRoot: () => root }) as TgpuComputePipeline;
+
+    const bindGroups = snapshot.bindGroups ?? [];
+    const usedBindGroupLayouts = snapshot.usedBindGroupLayouts ?? [];
+    expect(snapshot.device).toBe(root.device);
+    expect(bindGroups).toHaveLength(2);
+    expect(bindGroups.some(([, bindGroup]) => bindGroup === manualBindGroup)).toBe(true);
+
+    pipeline.dispatchWorkgroups(1);
+
+    const computePass = commandEncoder.mock.beginComputePass.mock.results[0]!.value as {
+      setPipeline: ReturnType<typeof vi.fn>;
+      setBindGroup: ReturnType<typeof vi.fn>;
+    };
+
+    expect(computePass.setPipeline).toHaveBeenCalledWith(snapshot.raw);
+    for (const [layout, bindGroup] of bindGroups) {
+      expect(computePass.setBindGroup).toHaveBeenCalledWith(
+        usedBindGroupLayouts.indexOf(layout),
+        isBindGroup(bindGroup) ? root.unwrap(bindGroup) : bindGroup,
+      );
+    }
+  });
+
+  it('should let .with() override preset bind groups on raw compute pipelines', ({
+    root,
+    commandEncoder,
+  }) => {
+    const manualLayout = tgpu.bindGroupLayout({ params: { uniform: d.f32 } });
+    const manualBindGroup = root.createBindGroup(manualLayout, {
+      params: root.createBuffer(d.f32).$usage('uniform'),
+    });
+    const overrideBindGroup = root.createBindGroup(manualLayout, {
+      params: root.createBuffer(d.f32).$usage('uniform'),
+    });
+
+    const sourcePipeline = root
+      .createComputePipeline({
+        compute: tgpu.computeFn({ workgroupSize: [1] })(() => {
+          'use gpu';
+          manualLayout.$.params;
+        }),
+      })
+      .with(manualBindGroup);
+
+    const snapshot = snapshotResource(sourcePipeline);
+    if (snapshot?.type !== 'compute-pipeline') {
+      throw new Error('Expected a compute pipeline snapshot');
+    }
+
+    const pipeline = (
+      restoreResource(snapshot, { getRoot: () => root }) as TgpuComputePipeline
+    ).with(overrideBindGroup);
+
+    pipeline.dispatchWorkgroups(1);
+
+    const computePass = commandEncoder.mock.beginComputePass.mock.results[0]!.value as {
+      setBindGroup: ReturnType<typeof vi.fn>;
+    };
+
+    expect(computePass.setBindGroup).toHaveBeenCalledTimes(1);
+    expect(computePass.setBindGroup.mock.calls[0]![0]).toBe(0);
+    expect(computePass.setBindGroup.mock.calls[0]![1]).toBe(root.unwrap(overrideBindGroup));
+  });
+
+  it('enables language extensions when their corresponding feature is enabled', ({
+    root,
+    device,
+  }) => {
+    Object.defineProperty(root, 'enabledFeatures', {
+      value: new Set<GPUFeatureName>(['shader-f16', 'subgroups']),
+      writable: true,
+    });
+
+    const fn = tgpu.computeFn({
+      in: { gid: d.builtin.globalInvocationId },
+      workgroupSize: [1],
+    })(({ gid }) => {
+      const a = d.arrayOf(d.f32, 3)();
+    });
+
+    const pipeline = root.createComputePipeline({ compute: fn });
+
+    pipeline.dispatchWorkgroups(1);
+
+    expect(
+      (
+        device.mock.createShaderModule.mock.calls[0] as {
+          label?: string;
+          code: string;
+        }[]
+      )[0]?.code,
+    ).toMatchInlineSnapshot(`
+      "enable f16;
+      enable subgroups;
+
+      @compute @workgroup_size(1) fn fn_1() {
+        let a = array<f32, 3>();
+      }"
+    `);
+  });
+
+  it('performs extension based pruning', ({ root, device }) => {
+    Object.defineProperty(root, 'enabledFeatures', {
+      value: new Set<GPUFeatureName>(['shader-f16', 'subgroups']),
+      writable: true,
+    });
+
+    const fn = tgpu.computeFn({
+      in: { gid: d.builtin.globalInvocationId },
+      workgroupSize: [1],
+    })(({ gid }) => {
+      const a = d.arrayOf(d.f16, 3)();
+      if (extensionEnabled('subgroups')) {
+        a[0] = gid.x;
+      }
+      if (extensionEnabled('f16')) {
+        a[1] = d.f16(1.0);
+      }
+      if (extensionEnabled('primitive_index')) {
+        a[2] = d.f16(2.0);
+      }
+    });
+
+    const pipeline = root.createComputePipeline({ compute: fn });
+
+    pipeline.dispatchWorkgroups(1);
+
+    expect(
+      (
+        device.mock.createShaderModule.mock.calls[0] as {
+          label?: string;
+          code: string;
+        }[]
+      )[0]?.code,
+    ).toMatchInlineSnapshot(`
+      "enable f16;
+      enable subgroups;
+
+      @compute @workgroup_size(1) fn fn_1(@builtin(global_invocation_id) gid: vec3u) {
+        var a = array<f16, 3>();
+        a[0i] = f16(gid.x);
+        a[1i] = 1h;
+      }"
+    `);
+  });
+
+  it('warns when buffer limits are exceeded', ({ root }) => {
+    using consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const uniform1 = root.createUniform(d.u32);
+    const uniform2 = root.createUniform(d.u32);
+    const uniform3 = root.createUniform(d.u32);
+    const uniform4 = root.createUniform(d.u32);
+    const uniform5 = root.createUniform(d.u32);
+    const uniform6 = root.createUniform(d.u32);
+    const uniform7 = root.createUniform(d.u32);
+    const uniform8 = root.createUniform(d.u32);
+    const uniform9 = root.createUniform(d.u32);
+    const uniform10 = root.createUniform(d.u32);
+    const uniform11 = root.createUniform(d.u32);
+    const uniform12 = root.createUniform(d.u32);
+    const uniform13 = root.createUniform(d.u32);
+
+    const readonly1 = root.createReadonly(d.u32);
+    const readonly2 = root.createReadonly(d.u32);
+    const readonly3 = root.createReadonly(d.u32);
+    const readonly4 = root.createReadonly(d.u32);
+    const readonly5 = root.createReadonly(d.u32);
+    const readonly6 = root.createReadonly(d.u32);
+    const readonly7 = root.createReadonly(d.u32);
+    const readonly8 = root.createReadonly(d.u32);
+    const readonly9 = root.createReadonly(d.u32);
+
+    const pipeline = root.createGuardedComputePipeline(() => {
+      'use gpu';
+      let a = d.u32();
+      a = uniform1.$;
+      a = uniform2.$;
+      a = uniform3.$;
+      a = uniform4.$;
+      a = uniform5.$;
+      a = uniform6.$;
+      a = uniform7.$;
+      a = uniform8.$;
+      a = uniform9.$;
+      a = uniform10.$;
+      a = uniform11.$;
+      a = uniform12.$;
+      a = uniform13.$;
+      a = readonly1.$;
+      a = readonly2.$;
+      a = readonly3.$;
+      a = readonly4.$;
+      a = readonly5.$;
+      a = readonly6.$;
+      a = readonly7.$;
+      a = readonly8.$;
+      a = readonly9.$;
+    });
+
+    pipeline.dispatchThreads();
+
+    expect(consoleWarnSpy.mock.calls[0]).toMatchInlineSnapshot(`
+      [
+        "⚠️ [webgpu-limits-exceeded] ",
+        "Total number of uniform buffers (14) exceeds maxUniformBuffersPerShaderStage (12). Consider:
+      1. Grouping some of the uniforms into one using 'd.struct',
+      2. Increasing the limit when requesting a device or creating a root.",
+      ]
+    `);
+    expect(consoleWarnSpy.mock.calls[1]).toMatchInlineSnapshot(`
+      [
+        "⚠️ [webgpu-limits-exceeded] ",
+        "Total number of storage buffers (9) exceeds maxStorageBuffersPerShaderStage (8).",
+      ]
+    `);
+  });
+
+  describe('dispatchWorkgroupsIndirect', () => {
+    // offset calculator for this struct: https://shorturl.at/NQggS
+    const DeepStruct = d.struct({
+      someData: d.arrayOf(d.f32, 13),
+      nested: d.struct({
+        randomData: d.f32,
+        x: d.atomic(d.u32),
+        y: d.u32,
+        innerNested: d.arrayOf(
+          d.struct({
+            xx: d.atomic(d.u32),
+            yy: d.u32,
+            zz: d.u32,
+            myVec: d.vec4u,
+          }),
+          3,
+        ),
+        z: d.u32,
+        additionalData: d.arrayOf(d.u32, 32),
+      }),
+    });
+
+    it('accepts raw GPUBuffer with indirect flag', ({ root, device }) => {
+      const buffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.INDIRECT });
+
+      const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+      const pipeline = root.createComputePipeline({ compute: entryFn });
+
+      pipeline.dispatchWorkgroupsIndirect(buffer, 4);
+    });
+
+    it('throws when offset is not multiple of 4', ({ root, device }) => {
+      const buffer = device.createBuffer({ size: 16, usage: GPUBufferUsage.INDIRECT });
+
+      const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+      const pipeline = root.createComputePipeline({ compute: entryFn });
+
+      expect(() =>
+        pipeline.dispatchWorkgroupsIndirect(buffer, 3),
+      ).toThrowErrorMatchingInlineSnapshot(
+        `[Error: Indirect buffer offset must be a multiple of 4. Got: 3]`,
+      );
+    });
+
+    it('throws when raw GPUBuffer size is not enough for dispatch', ({ device, root }) => {
+      const buffer = device.createBuffer({
+        size: 13,
+        usage: GPUBufferUsage.INDIRECT,
+      });
+
+      const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+      const pipeline = root.createComputePipeline({ compute: entryFn });
+
+      expect(() =>
+        pipeline.dispatchWorkgroupsIndirect(buffer, 4),
+      ).toThrowErrorMatchingInlineSnapshot(
+        `[Error: Buffer too small for dispatchWorkgroupsIndirect. Required: 12 bytes at offset 4, but buffer is only 13 bytes.]`,
+      );
+    });
+
+    it('warns when dispatch would read across padding', ({ root }) => {
+      using warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+      const pipeline = root.createComputePipeline({ compute: entryFn });
+
+      const PaddedStruct = d.struct({ a: d.u32, b: d.vec3u });
+      const buffer = root.createBuffer(PaddedStruct).$usage('indirect');
+
+      pipeline.dispatchWorkgroupsIndirect(
+        buffer,
+        d.memoryLayoutOf(PaddedStruct, (s) => s.a),
+      );
+
+      expect(warnSpy.mock.calls[0]).toMatchInlineSnapshot(`
+        [
+          "⚠️ [suspicious] ",
+          "dispatchWorkgroupsIndirect: Starting at offset 0, only 4 contiguous bytes are available before padding. 'dispatchWorkgroupsIndirect' requires 12 bytes (3 x u32). Reading across padding may result in undefined behavior.",
+        ]
+      `);
+
+      const deepBuffer = root.createBuffer(DeepStruct).$usage('indirect');
+      pipeline.dispatchWorkgroupsIndirect(
+        deepBuffer,
+        d.memoryLayoutOf(DeepStruct, (s) => s.someData[11]),
+      );
+
+      expect(warnSpy.mock.calls[1]).toMatchInlineSnapshot(`
+        [
+          "⚠️ [suspicious] ",
+          "dispatchWorkgroupsIndirect: Starting at offset 44, only 8 contiguous bytes are available before padding. 'dispatchWorkgroupsIndirect' requires 12 bytes (3 x u32). Reading across padding may result in undefined behavior.",
+        ]
+      `);
+
+      pipeline.dispatchWorkgroupsIndirect(
+        deepBuffer,
+        d.memoryLayoutOf(DeepStruct, (s) => s.nested.innerNested[0]?.yy),
+      );
+
+      expect(warnSpy.mock.calls[2]).toMatchInlineSnapshot(`
+        [
+          "⚠️ [suspicious] ",
+          "dispatchWorkgroupsIndirect: Starting at offset 84, only 8 contiguous bytes are available before padding. 'dispatchWorkgroupsIndirect' requires 12 bytes (3 x u32). Reading across padding may result in undefined behavior.",
+        ]
+      `);
+    });
+
+    it('does not warn when dispatch has sufficient contiguous data', ({ root }) => {
+      using warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      const entryFn = tgpu.computeFn({ workgroupSize: [1] })(() => {});
+      const pipeline = root.createComputePipeline({ compute: entryFn });
+
+      // vec3u has exactly 12 contiguous bytes - no warning needed
+      const buffer = root.createBuffer(d.vec3u).$usage('indirect');
+      pipeline.dispatchWorkgroupsIndirect(buffer);
+
+      expect(warnSpy).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('pipe', () => {
+  it('applies a transform that binds a bind group', ({ root }) => {
+    const layout = tgpu.bindGroupLayout({ alpha: { uniform: d.f32 } });
+    const bindGroup = root.createBindGroup(layout, {
+      alpha: root.createBuffer(d.f32).$usage('uniform'),
+    });
+
+    const inject = () => (pipeline: TgpuComputePipeline) => pipeline.with(bindGroup);
+
+    const pipeline = root.createComputePipeline({
+      compute: tgpu.computeFn({ workgroupSize: [1] })(() => {
+        layout.$.alpha;
+      }),
+    });
+
+    expect(() => pipeline.dispatchWorkgroups(1)).toThrow(new MissingBindGroupsError([layout]));
+    expect(() => pipeline.pipe(inject()).dispatchWorkgroups(1)).not.toThrow();
+    expect(pipeline.pipe((p) => p)).toBe(pipeline);
+  });
+});

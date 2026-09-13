@@ -1,0 +1,22 @@
+---
+const { image, header, class: className } = Astro.props;
+---
+
+<article
+  class:list={[
+    'box-border flex flex-col justify-between gap-8 rounded-4xl bg-white p-6 md:rounded-[3.75rem] md:p-10 lg:h-112 lg:rounded-[5rem] lg:p-14',
+    className,
+  ]}
+>
+  <div
+    class="border-special-stroke self-start rounded-xl border-2 p-3 md:rounded-2xl lg:rounded-3xl"
+  >
+    <img class="w-8 md:w-12" src={`/TypeGPU/assets/${image}.svg`} alt={image} />
+  </div>
+  <div>
+    <h3 class="text-grayscale-100 m-0 pb-3 font-normal md:pb-4">
+      {header}
+    </h3>
+    <p class="text-grayscale-80 m-0"><slot /></p>
+  </div>
+</article>

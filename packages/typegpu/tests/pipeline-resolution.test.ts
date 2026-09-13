@@ -1,0 +1,112 @@
+import { describe, expect } from 'vitest';
+import { tgpu, d } from 'typegpu';
+import { it } from 'typegpu-testing-utility';
+
+describe('resolve', () => {
+  const Boid = d.struct({
+    position: d.vec2f,
+    color: d.vec4f,
+  });
+
+  const computeFn = tgpu.computeFn({
+    workgroupSize: [1, 1, 1],
+    in: { gid: d.builtin.globalInvocationId },
+  })(() => {
+    const myBoid = Boid({
+      position: d.vec2f(0, 0),
+      color: d.vec4f(1, 0, 0, 1),
+    });
+  });
+
+  const vertexFn = tgpu.vertexFn({
+    out: { pos: d.builtin.position, color: d.vec4f },
+  })(() => {
+    const myBoid = Boid();
+    return { pos: d.vec4f(myBoid.position, 0, 1), color: myBoid.color };
+  });
+
+  const fragmentFn = tgpu.fragmentFn({
+    in: { color: d.vec4f },
+    out: d.vec4f,
+  })((input) => {
+    return input.color;
+  });
+
+  it('can resolve a render pipeline', ({ root }) => {
+    const pipeline = root.createRenderPipeline({
+      vertex: vertexFn,
+      fragment: fragmentFn,
+      targets: { format: 'rgba8unorm' },
+    });
+
+    expect(tgpu.resolve([pipeline])).toMatchInlineSnapshot(`
+      "struct Boid {
+        position: vec2f,
+        color: vec4f,
+      }
+
+      struct vertexFn_Output {
+        @builtin(position) pos: vec4f,
+        @location(0) color: vec4f,
+      }
+
+      @vertex fn vertexFn() -> vertexFn_Output {
+        let myBoid = Boid();
+        return vertexFn_Output(vec4f(myBoid.position, 0f, 1f), myBoid.color);
+      }
+
+      struct fragmentFn_Input {
+        @location(0) color: vec4f,
+      }
+
+      @fragment fn fragmentFn(_arg_0: fragmentFn_Input) -> @location(0) vec4f {
+        return _arg_0.color;
+      }"
+    `);
+  });
+
+  it('can resolve a compute pipeline', ({ root }) => {
+    const pipeline = root.createComputePipeline({ compute: computeFn });
+
+    expect(tgpu.resolve([pipeline])).toMatchInlineSnapshot(`
+      "struct Boid {
+        position: vec2f,
+        color: vec4f,
+      }
+
+      @compute @workgroup_size(1, 1, 1) fn computeFn() {
+        let myBoid = Boid(vec2f(), vec4f(1, 0, 0, 1));
+      }"
+    `);
+  });
+
+  it('can resolve a guarded compute pipeline', ({ root }) => {
+    const pipelineGuard = root.createGuardedComputePipeline((x, y, z) => {
+      'use gpu';
+      const myBoid = Boid({
+        position: d.vec2f(0, 0),
+        color: d.vec4f(x, y, z, 1),
+      });
+    });
+
+    expect(tgpu.resolve([pipelineGuard.pipeline])).toMatchInlineSnapshot(`
+      "@group(0) @binding(0) var<uniform> sizeUniform: vec3u;
+
+      struct Boid {
+        position: vec2f,
+        color: vec4f,
+      }
+
+      fn wrappedCallback(x: u32, y: u32, z: u32) {
+        let myBoid = Boid(vec2f(), vec4f(f32(x), f32(y), f32(z), 1f));
+      }
+
+      @compute @workgroup_size(8, 8, 4) fn mainCompute(@builtin(global_invocation_id) id: vec3u) {
+        if (any(id >= sizeUniform)) {
+          return;
+        }
+        wrappedCallback(id.x, id.y, id.z);
+      }"
+    `);
+  });
+});

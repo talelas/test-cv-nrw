@@ -1,0 +1,70 @@
+{
+  "name": "tinyest-for-wgsl",
+  "version": "0.4.1",
+  "description": "Transforms JavaScript into its 'tinyest' form, to be used in generating equivalent (or close to) WGSL code.",
+  "keywords": [
+    "compute",
+    "gpgpu",
+    "shader",
+    "shaders",
+    "tinyest",
+    "typegpu",
+    "typescript",
+    "webgpu",
+    "wgpu",
+    "wgsl"
+  ],
+  "homepage": "https://docs.swmansion.com/TypeGPU",
+  "bugs": {
+    "url": "https://github.com/software-mansion/TypeGPU/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/software-mansion/TypeGPU.git",
+    "directory": "packages/tinyest-for-wgsl"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": "./src/index.ts",
+  "publishConfig": {
+    "access": "public",
+    "directory": "dist",
+    "exports": {
+      "./package.json": "./package.json",
+      ".": {
+        "require": {
+          "types": "./dist/index.d.cts",
+          "default": "./dist/index.cjs"
+        },
+        "import": {
+          "types": "./dist/index.d.ts",
+          "default": "./dist/index.js"
+        }
+      }
+    },
+    "linkDirectory": false,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  },
+  "scripts": {
+    "build": "tsdown",
+    "test:types": "pnpm tsc --p ./tsconfig.test.json --noEmit",
+    "prepublishOnly": "tgpu-dev-cli prepack"
+  },
+  "dependencies": {
+    "tinyest": "workspace:~"
+  },
+  "devDependencies": {
+    "@babel/parser": "^7.27.0",
+    "@babel/types": "catalog:",
+    "@typegpu/tgpu-dev-cli": "workspace:*",
+    "acorn": "^8.14.1",
+    "tsdown": "catalog:build",
+    "typescript": "catalog:types"
+  },
+  "engines": {
+    "node": ">=12.20.0"
+  },
+  "packageManager": "pnpm@11.1.2+sha512.415a1cc25974731e75455c1468371be74c5aa5fb7621b50d4056d222451609f11412f23fd602e6169f1e060466641f798597e1be961a10688836a67b16569499"
+}

@@ -1,0 +1,118 @@
+{
+  "name": "typegpu",
+  "version": "0.12.5",
+  "description": "A thin layer between JS and WebGPU/WGSL that improves development experience and allows for faster iteration.",
+  "keywords": [
+    "compute",
+    "gpgpu",
+    "shader",
+    "shaders",
+    "typescript",
+    "webgpu",
+    "wgpu",
+    "wgsl"
+  ],
+  "homepage": "https://typegpu.com",
+  "bugs": {
+    "url": "https://github.com/software-mansion/TypeGPU/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/software-mansion/TypeGPU.git",
+    "directory": "packages/typegpu"
+  },
+  "bin": "./bin.mjs",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./package.json": "./package.json",
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
+    "./data": "./src/data/index.ts",
+    "./std": "./src/std/index.ts",
+    "./common": "./src/common/index.ts",
+    "./~internal": "./src/internal.ts",
+    "./$built$": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./data/$built$": {
+      "types": "./dist/data/index.d.ts",
+      "default": "./dist/data/index.js"
+    },
+    "./std/$built$": {
+      "types": "./dist/std/index.d.ts",
+      "default": "./dist/std/index.js"
+    },
+    "./common/$built$": {
+      "types": "./dist/common/index.d.ts",
+      "default": "./dist/common/index.js"
+    },
+    "./~internal/$built$": {
+      "types": "./dist/internal.d.ts",
+      "default": "./dist/internal.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "directory": "dist",
+    "exports": {
+      "./package.json": "./dist/package.json",
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./data": {
+        "types": "./dist/data/index.d.ts",
+        "default": "./dist/data/index.js"
+      },
+      "./std": {
+        "types": "./dist/std/index.d.ts",
+        "default": "./dist/std/index.js"
+      },
+      "./common": {
+        "types": "./dist/common/index.d.ts",
+        "default": "./dist/common/index.js"
+      },
+      "./~internal": {
+        "types": "./dist/internal.d.ts",
+        "default": "./dist/internal.js"
+      }
+    },
+    "linkDirectory": false,
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  },
+  "scripts": {
+    "build": "bun build.mjs",
+    "test:types": "tsc --p ./tsconfig.test.json --noEmit",
+    "prepublishOnly": "tgpu-dev-cli prepack"
+  },
+  "dependencies": {
+    "tinyest": "workspace:~",
+    "tsover-runtime": "^0.0.7",
+    "typed-binary": "^4.3.3"
+  },
+  "devDependencies": {
+    "@ark/attest": "^0.56.0",
+    "@typegpu/tgpu-dev-cli": "workspace:*",
+    "@types/node": "catalog:types",
+    "@webgpu/types": "catalog:types",
+    "arktype": "catalog:",
+    "bun": "catalog:",
+    "consola": "^3.4.0",
+    "jiti": "catalog:build",
+    "jsdom": "^27.0.0",
+    "typegpu-testing-utility": "workspace:*",
+    "typescript": "catalog:types",
+    "unplugin-typegpu": "workspace:*",
+    "wgpu-matrix": "catalog:example"
+  },
+  "engines": {
+    "node": ">=12.20.0"
+  },
+  "packageManager": "pnpm@11.1.2+sha512.415a1cc25974731e75455c1468371be74c5aa5fb7621b50d4056d222451609f11412f23fd602e6169f1e060466641f798597e1be961a10688836a67b16569499"
+}
